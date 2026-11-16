@@ -24,7 +24,7 @@ LOG_FILE="/var/log/proxy-setup.log"
 # One-command режим: скрипт запускается из process substitution (bash <(curl ...)),
 # локальных assets/ рядом нет — шаблон сайта скачивается из этого репозитория.
 REPO_SLUG="NikitaDedenev/proxy-setup"
-REPO_BRANCH="master"
+REPO_BRANCH="main"
 REPO_RAW="https://raw.githubusercontent.com/${REPO_SLUG}/${REPO_BRANCH}"
 SITE_CACHE="${STATE_DIR}/site-template"
 
@@ -355,7 +355,7 @@ proxy-setup deploy.sh — развёртывание 3x-ui (selfSNI за Nginx),
 MT_SECRET, MTPROTO_TAG, ENABLE_XUI, ENABLE_HUI, ENABLE_MTPROTO, ENABLE_XHTTP, SITE_DIR.
 
 Установка в одну команду:
-  bash <(curl -fsSL https://raw.githubusercontent.com/NikitaDedenev/proxy-setup/master/deploy.sh) \\
+  bash <(curl -fsSL https://raw.githubusercontent.com/NikitaDedenev/proxy-setup/main/deploy.sh) \\
        --domain example.com --reality-domain reality.example.com
 EOF
 }

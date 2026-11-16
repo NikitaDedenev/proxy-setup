@@ -24,7 +24,7 @@
 которые уже указывают A-записью на этот сервер.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NikitaDedenev/proxy-setup/master/deploy.sh) \
+bash <(curl -fsSL https://raw.githubusercontent.com/NikitaDedenev/proxy-setup/main/deploy.sh) \
   --domain example.com \
   --reality-domain reality.example.com
 ```
@@ -39,7 +39,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/NikitaDedenev/proxy-setup/ma
 ### Деинсталляция
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NikitaDedenev/proxy-setup/master/deploy.sh) --uninstall
+bash <(curl -fsSL https://raw.githubusercontent.com/NikitaDedenev/proxy-setup/main/deploy.sh) --uninstall
 ```
 
 Удаляет всё созданное (по `manifest.txt`), бэкапы и `state.env` остаются в
