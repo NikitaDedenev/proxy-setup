@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Company — {{SITE_NAME}}</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">{{SITE_NAME}}</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/about.html">Company</a>
+    <a href="/contacts.html">Contacts</a>
+  </nav>
+</header>
+
+<main>
+  <article class="page">
+    <h1>About us</h1>
+    <p>{{SITE_NAME}} is an engineering studio focused on infrastructure. We have been helping
+       product teams move from single virtual machines to reproducible, observable platforms
+       since 2016.</p>
+
+    <h2>What we do</h2>
+    <ul>
+      <li>Cloud architecture reviews and migration planning</li>
+      <li>Kubernetes platform build-out and hardening</li>
+      <li>Network edge, TLS automation and traffic engineering</li>
+      <li>Monitoring, alerting and on-call process setup</li>
+    </ul>
+
+    <h2>How we work</h2>
+    <p>Every engagement starts with a short audit. You receive a written report with risks,
+       quick wins and a cost estimate. Implementation is incremental: nothing goes to production
+       without a rollback plan and a monitoring signal.</p>
+  </article>
+</main>
+
+<footer>
+  <p>&copy; {{YEAR}} {{SITE_NAME}}. All rights reserved.</p>
+  <p><a href="/privacy.html">Privacy policy</a></p>
+</footer>
+</body>
+</html>

@@ -1,0 +1,9 @@
+*.env
+/refs
+/.refs
+info.md
+example.yaml
+*.bak
+*.swp
+/tmp/
+.clinerules
