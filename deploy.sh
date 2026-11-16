@@ -21,6 +21,13 @@ BACKUP_ROOT="${STATE_DIR}/backups"
 SUMMARY_FILE="${STATE_DIR}/summary.txt"
 LOG_FILE="/var/log/proxy-setup.log"
 
+# One-command режим: скрипт запускается из process substitution (bash <(curl ...)),
+# локальных assets/ рядом нет — шаблон сайта скачивается из этого репозитория.
+REPO_SLUG="NikitaDedenev/proxy-setup"
+REPO_BRANCH="master"
+REPO_RAW="https://raw.githubusercontent.com/${REPO_SLUG}/${REPO_BRANCH}"
+SITE_CACHE="${STATE_DIR}/site-template"
+
 NGINX_SITES_AVAIL="/etc/nginx/sites-available"
 NGINX_SITES_ENABLED="/etc/nginx/sites-enabled"
 NGINX_STREAM_DIR="/etc/nginx/stream-enabled"
@@ -346,18 +353,24 @@ proxy-setup deploy.sh — развёртывание 3x-ui (selfSNI за Nginx),
 
 Переменные окружения и .env: DOMAIN, REALITY_DOMAIN, LE_EMAIL, SSH_PORT, MT_PORT,
 MT_SECRET, MTPROTO_TAG, ENABLE_XUI, ENABLE_HUI, ENABLE_MTPROTO, ENABLE_XHTTP, SITE_DIR.
+
+Установка в одну команду:
+  bash <(curl -fsSL https://raw.githubusercontent.com/NikitaDedenev/proxy-setup/master/deploy.sh) \\
+       --domain example.com --reality-domain reality.example.com
 EOF
 }
 
 load_env_file() {
-    local env_file="${SCRIPT_DIR}/.env"
-    if [[ -f $env_file ]]; then
+    local env_file
+    for env_file in "${SCRIPT_DIR}/.env" "${PWD}/.env"; do
+        [[ -f $env_file ]] || continue
         msg_info "Читаю ${env_file}"
         set -a
         # shellcheck disable=SC1090
         source "$env_file"
         set +a
-    fi
+        break
+    done
 }
 
 normalize_domain() {
@@ -804,6 +817,23 @@ cert_renewal_use_webroot() {
     fi
 }
 # ── Сайт-заглушка ────────────────────────────────────────────────────────────
+fetch_site_assets() {
+    local dest=$1
+    local files=(index.html about.html contacts.html privacy.html 404.html
+                 style.css favicon.svg robots.txt sitemap.xml)
+    local f
+    mkdir -p "$dest" || return 1
+    for f in "${files[@]}"; do
+        if ! curl -fsSL --retry 2 --max-time 30 -o "${dest}/${f}" "${REPO_RAW}/assets/site/${f}"; then
+            msg_warn "Не удалось скачать assets/site/${f} с GitHub"
+            return 1
+        fi
+    done
+    [[ -s "${dest}/index.html" ]] || return 1
+    msg_ok "Шаблон сайта загружен с ${REPO_SLUG}@${REPO_BRANCH}"
+    return 0
+}
+
 deploy_site() {
     msg_info "Разворачиваю сайт-заглушку в ${WEBROOT}"
     mkdir -p "$WEBROOT"
@@ -815,6 +845,11 @@ deploy_site() {
         src=$SITE_DIR
     elif [[ -d ${SCRIPT_DIR}/assets/site ]]; then
         src="${SCRIPT_DIR}/assets/site"
+    else
+        msg_info "Локальный assets/site не найден (режим одной команды) — тяну с GitHub"
+        if fetch_site_assets "$SITE_CACHE"; then
+            src=$SITE_CACHE
+        fi
     fi
 
     if [[ -n $src ]]; then

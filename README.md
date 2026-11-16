@@ -18,17 +18,57 @@
   предыдущей установки).
 * Два домена/поддомена с A-записями на IP сервера, открытые 80/tcp и 443/tcp+udp.
 
-## Быстрый старт
+## Установка в одну команду
+
+Нужен чистый Ubuntu-сервер (22.04/24.04/26.04) с root-доступом и два домена,
+которые уже указывают A-записью на этот сервер.
 
 ```bash
-scp -r deploy.sh assets .env root@SERVER:/root/proxy-setup-src/
-ssh root@SERVER
-cd /root/proxy-setup-src
-./deploy.sh --domain example.com --reality-domain reality.example.com --yes
+bash <(curl -fsSL https://raw.githubusercontent.com/NikitaDedenev/proxy-setup/master/deploy.sh) \
+  --domain example.com \
+  --reality-domain reality.example.com
 ```
 
-Без интерактива параметры берутся из `.env` (см. `.env.example`) и CLI-флагов
-(CLI имеет приоритет). Полный список: `./deploy.sh --help`.
+Без флагов скрипт спросит домены интерактивно. Если домены уже прописаны в
+`.env` рядом с текущим каталогом — они подхватятся автоматически.
+
+> Важно: используйте именно `bash <(curl ...)`, а не `curl ... | bash`.
+> При пайпе stdin занят скриптом, и интерактивные подтверждения/запросы работать
+> не будут.
+
+### Деинсталляция
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/NikitaDedenev/proxy-setup/master/deploy.sh) --uninstall
+```
+
+Удаляет всё созданное (по `manifest.txt`), бэкапы и `state.env` остаются в
+`/root/proxy-setup/`.
+
+### Другие частые варианты
+
+```bash
+# только отрендерить конфиги nginx в /tmp/proxy-setup-dryrun, ничего не меняя
+bash <(curl -fsSL .../deploy.sh) -d example.com -r reality.example.com --dry-run
+
+# повторный запуск поверх существующей установки — идемпотентно, без удаления
+bash <(curl -fsSL .../deploy.sh) -d example.com -r reality.example.com
+
+# полный сброс с бэкапом и удалением старой установки
+bash <(curl -fsSL .../deploy.sh) -d example.com -r reality.example.com --force
+
+# параметры из переменных окружения (без интерактива)
+DOMAIN=example.com REALITY_DOMAIN=reality.example.com \
+  bash <(curl -fsSL .../deploy.sh) --yes
+
+# локальный запуск из клонированного репозитория
+git clone https://github.com/NikitaDedenev/proxy-setup && cd proxy-setup
+./deploy.sh -d example.com -r reality.example.com
+```
+
+Скрипт скачивает `deploy.sh` из ветки `master`; шаблон сайта-заглушки при
+одно-командном запуске тоже подтягивается с GitHub (`assets/site`), поэтому
+клонировать репозиторий не обязательно.
 
 ## Что создаётся
 
@@ -60,11 +100,23 @@ cd /root/proxy-setup-src
 
 ## Флаги
 
-```
--d/--domain, -r/--reality-domain, -e/--email, --ssh-port, --mt-port, --mt-tag,
---site-dir, --no-xui, --no-hui, --no-mtproto, --no-xhttp,
---force, -y/--yes, --skip-dns-check, --dry-run, --uninstall, --no-color, -h/--help
-```
+| Флаг | Описание |
+|---|---|
+| `-d, --domain <домен>` | основной домен: сайт-заглушка, панели, WS/XHTTP/Trojan, Hysteria2 TLS |
+| `-r, --reality-domain <домен>` | домен для VLESS Reality (SNI и dest, selfSNI) |
+| `-e, --email <email>` | e-mail для Let's Encrypt (иначе регистрация без email) |
+| `--ssh-port <порт>` | SSH-порт для ufw (по умолчанию из `sshd -T`) |
+| `--mt-port <порт>` | порт MTProto (по умолчанию случайный) |
+| `--mt-tag <tag>` | тег прокси из @MTProxybot (необязательно) |
+| `--site-dir <путь>` | свой сайт-заглушка (обязателен `index.html`) |
+| `--no-xui` / `--no-hui` / `--no-mtproto` | не устанавливать компонент |
+| `--no-xhttp` | не создавать inbound VLESS XHTTP |
+| `--force`, `-y`, `--yes` | согласие на удаление существующей установки |
+| `--skip-dns-check` | не проверять A-записи доменов |
+| `--dry-run` | отрендерить nginx-конфиги в `/tmp/proxy-setup-dryrun` и выйти |
+| `--uninstall` | удалить созданное этим скриптом (по manifest) |
+| `--no-color` | без ANSI-цветов |
+| `-h, --help` | справка |
 
 `--dry-run` только рендерит nginx-конфиги в `/tmp/proxy-setup-dryrun` и выходит.
 `--uninstall` удаляет созданное по manifest (бэкапы и state остаются).
