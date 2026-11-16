@@ -918,6 +918,8 @@ EOF
 server {
     server_tokens off;
     server_name ${REALITY_DOMAIN};
+    server_name_in_redirect off;
+    port_in_redirect off;
 
     listen 9443 ssl http2;
     listen [::]:9443 ssl http2;
@@ -954,6 +956,8 @@ render_nginx_main() {
 server {
     server_tokens off;
     server_name ${DOMAIN};
+    server_name_in_redirect off;
+    port_in_redirect off;
 
     listen 7443 ssl http2 proxy_protocol;
     listen [::]:7443 ssl http2 proxy_protocol;
@@ -981,7 +985,7 @@ server {
     if (\$request_uri ~ "(\"|'|\`|~|;|&&|\\?\\?|0x00|0X00|\\||\\{|\\}|\\[|\\]|<|>|\\.\\.\\.|\\.\\./|///)") { set \$ps_hack 1; }
 
     # ── 3x-ui panel (только loopback) ──────────────────────────────────────
-    location = /${XUI_PATH} { return 301 /${XUI_PATH}/; }
+    location = /${XUI_PATH} { return 301 https://\$host/${XUI_PATH}/; }
 
     location ^~ /${XUI_PATH}/ {
         proxy_http_version 1.1;
