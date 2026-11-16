@@ -493,9 +493,12 @@ collect_inventory() {
         found=1
     fi
 
-    if [[ -d ${LE_DIR} ]] && [[ -n $(ls -A "${LE_DIR}" 2>/dev/null) ]]; then
-        # shellcheck disable=SC2012 # каталоги LE-сертификатов — обычные доменные имена
-        INVENTORY+="  - сертификаты Let's Encrypt: $(ls -m "${LE_DIR}" 2>/dev/null | tr -d '\n')"$'\n'
+    if [[ -d ${LE_DIR} ]]; then
+        local le_domains
+        le_domains=$(find "${LE_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f ' 2>/dev/null | sed 's/ $//')
+        if [[ -n $le_domains ]]; then
+            INVENTORY+="  - сертификаты Let's Encrypt: ${le_domains}"$'\n'
+        fi
     fi
 
     return "$found"
@@ -1889,6 +1892,13 @@ final_checks() {
 
 # ── main ────────────────────────────────────────────────────────────────────
 main() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            -h|--help) usage; exit 0 ;;
+        esac
+    done
+
     need_root
     init_logging
     init_lock
