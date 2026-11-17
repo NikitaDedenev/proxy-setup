@@ -11,6 +11,10 @@
 * **443/UDP** — **Hysteria2** (h-ui): TLS от Let's Encrypt, `sniGuard: strict`,
   obfs `salamander`, `masquerade.proxy` → `https://DOMAIN` (маскировка под тот же сайт).
 * **Docker + MTProto** — `telegrammessenger/proxy`, готовая `tg://proxy` ссылка.
+* **Telegram Web Proxy** (`tg://webproxy`) — опционально: `telemt` слушает только
+  loopback, nginx отдаёт секретный путь `/<random>/` на основном домене (тот же
+  443/tcp и selfSNI). Неавторизованные запросы получают сайт-заглушку (decoy).
+  Клиент — Telegram Desktop с типом прокси «WEB»; мобильные клиенты используют MTProto.
 
 ## Требования
 
@@ -83,6 +87,7 @@ git clone https://github.com/NikitaDedenev/proxy-setup && cd proxy-setup
 | `/var/www/html/` | сайт-заглушка (`assets/site` или `--site-dir`) |
 | `/etc/letsencrypt/live/{DOMAIN,REALITY_DOMAIN}` | сертификаты (certbot + deploy-hook) |
 | `/opt/mtproto/docker-compose.yml` | MTProto контейнер |
+| `/usr/local/bin/telemt`, `/etc/telemt/telemt.toml` | Telegram Web Proxy (`tg://webproxy`), loopback |
 
 Панели не публикуются напрямую: 3x-ui слушает `127.0.0.1`, h-ui — на случайном
 порту, который не открыт в ufw (default-deny). Доступ к обеим — только через nginx
@@ -111,6 +116,7 @@ git clone https://github.com/NikitaDedenev/proxy-setup && cd proxy-setup
 | `--site-dir <путь>` | свой сайт-заглушка (обязателен `index.html`) |
 | `--no-xui` / `--no-hui` / `--no-mtproto` | не устанавливать компонент |
 | `--no-xhttp` | не создавать inbound VLESS XHTTP |
+| `--no-webproxy` | не поднимать Telegram Web Proxy (`tg://webproxy`) |
 | `--force`, `-y`, `--yes` | согласие на удаление существующей установки |
 | `--skip-dns-check` | не проверять A-записи доменов |
 | `--dry-run` | отрендерить nginx-конфиги в `/tmp/proxy-setup-dryrun` и выйти |
@@ -144,6 +150,12 @@ git clone https://github.com/NikitaDedenev/proxy-setup && cd proxy-setup
   без собственного redirect, чтобы не получить цикл.
 * **Docker и ufw.** Опубликованный порт MTProto обходит ufw; публикуется только он,
   остальные сервисы слушают loopback/закрыты default-deny.
+* **Telegram Web Proxy (telemt).** По умолчанию telemt поднимает control-API на
+  `0.0.0.0:9091` — скрипт его **отключает** (`[server.api] enabled = false`).
+  WEB-listener слушает только `127.0.0.1`, наружу торчит лишь nginx-путь с decoy;
+  `ee`-секреты WEB-режим не поддерживает (только `plain`/`dd`). Режим рассчитан на
+  Telegram Desktop и молодой — включён по умолчанию, но отключается `--no-webproxy`.
+
 
 ## Проверка после установки
 

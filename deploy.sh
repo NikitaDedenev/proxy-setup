@@ -49,6 +49,13 @@ HUI_HY_CONFIG="${HUI_DIR}/bin/hysteria2.yaml"
 
 MTPROTO_DIR="/opt/mtproto"
 
+# Telegram Web Proxy (tg://webproxy) через telemt за nginx (plain HTTP, loopback)
+TELEMT_BIN="/usr/local/bin/telemt"
+TELEMT_DIR="/etc/telemt"
+TELEMT_CONF="${TELEMT_DIR}/telemt.toml"
+TELEMT_USER="telemt"
+TELEMT_DATA="/opt/telemt"
+
 # ── Значения по умолчанию (перекрываются .env / CLI / state.env) ─────────────
 DOMAIN=""
 REALITY_DOMAIN=""
@@ -62,6 +69,7 @@ ENABLE_XUI=1
 ENABLE_HUI=1
 ENABLE_MTPROTO=1
 ENABLE_XHTTP=1
+ENABLE_WEBPROXY=1
 SITE_DIR=""
 
 ASSUME_YES=0
@@ -98,6 +106,12 @@ HUI_PASS=""
 HY2_OBFS_PASS=""
 HY2_STATS_SECRET=""
 HY2_STATS_PORT=""
+WEBPROXY_USER="web-user"
+WEBPROXY_PORT=""
+WEBPROXY_PATH=""
+WEBPROXY_SECRET=""
+WEBPROXY_DECOY_PORT=""
+WEBPROXY_LINK=""
 SERVER_IP=""
 BACKUP_DIR=""
 INVENTORY=""
@@ -287,6 +301,11 @@ HUI_PASS='${HUI_PASS}'
 HY2_OBFS_PASS='${HY2_OBFS_PASS}'
 HY2_STATS_SECRET='${HY2_STATS_SECRET}'
 HY2_STATS_PORT='${HY2_STATS_PORT}'
+WEBPROXY_PORT='${WEBPROXY_PORT}'
+WEBPROXY_PATH='${WEBPROXY_PATH}'
+WEBPROXY_SECRET='${WEBPROXY_SECRET}'
+WEBPROXY_DECOY_PORT='${WEBPROXY_DECOY_PORT}'
+WEBPROXY_LINK='${WEBPROXY_LINK}'
 MT_PORT='${MT_PORT}'
 MT_SECRET='${MT_SECRET}'
 MTPROTO_TAG='${MTPROTO_TAG}'
@@ -320,6 +339,10 @@ ensure_secrets() {
     HY2_OBFS_PASS=${HY2_OBFS_PASS:-$(rand_hex 10)}
     HY2_STATS_PORT=${HY2_STATS_PORT:-$(rand_port)}
     HY2_STATS_SECRET=${HY2_STATS_SECRET:-$(rand_hex 10)}
+    WEBPROXY_PORT=${WEBPROXY_PORT:-$(rand_port)}
+    WEBPROXY_PATH=${WEBPROXY_PATH:-$(rand_hex 12)}
+    WEBPROXY_SECRET=${WEBPROXY_SECRET:-$(rand_hex 16)}
+    WEBPROXY_DECOY_PORT=${WEBPROXY_DECOY_PORT:-$(rand_port)}
     MT_SECRET=${MT_SECRET:-$(rand_hex 16)}
     MT_PORT=${MT_PORT:-$(rand_port)}
 }
@@ -343,6 +366,7 @@ proxy-setup deploy.sh — развёртывание 3x-ui (selfSNI за Nginx),
       --no-hui                    не устанавливать h-ui / Hysteria2
       --no-mtproto                не устанавливать MTProto
       --no-xhttp                  не создавать inbound VLESS XHTTP
+      --no-webproxy               не поднимать Telegram Web Proxy (tg://webproxy)
       --force                     согласие на удаление существующей установки
   -y, --yes                       не задавать вопросов (эквивалент --force для wipe)
       --skip-dns-check            не проверять A-записи доменов
@@ -404,6 +428,7 @@ parse_args() {
             --no-hui) ENABLE_HUI=0; shift ;;
             --no-mtproto) ENABLE_MTPROTO=0; shift ;;
             --no-xhttp) ENABLE_XHTTP=0; shift ;;
+            --no-webproxy) ENABLE_WEBPROXY=0; shift ;;
             --force) FORCE=1; shift ;;
             -y|--yes) ASSUME_YES=1; shift ;;
             --skip-dns-check) SKIP_DNS_CHECK=1; shift ;;
@@ -579,6 +604,7 @@ reset_generated_vars() {
     XHTTP_PATH="" VLESS_UUID="" VLESS_UUID_WS="" VLESS_UUID_XHTTP=""
     REALITY_PRIVATE_KEY="" REALITY_PUBLIC_KEY="" REALITY_SHORT_ID=""
     HUI_PORT="" HUI_PATH="" HUI_PASS="" HY2_OBFS_PASS="" HY2_STATS_SECRET="" HY2_STATS_PORT=""
+    WEBPROXY_PORT="" WEBPROXY_PATH="" WEBPROXY_SECRET="" WEBPROXY_DECOY_PORT="" WEBPROXY_LINK=""
     MT_SECRET=""
 }
 
@@ -600,6 +626,14 @@ wipe_existing() {
     rm -f /etc/systemd/system/h-ui.service
     rm -rf "${HUI_DIR}"
 
+    if systemctl list-unit-files 2>/dev/null | grep -q '^telemt\.service'; then
+        systemctl stop telemt 2>/dev/null || true
+        systemctl disable telemt 2>/dev/null || true
+    fi
+    rm -f /etc/systemd/system/telemt.service
+    rm -rf "$TELEMT_DIR" "$TELEMT_DATA"
+    rm -f "$TELEMT_BIN"
+
     if [[ -d $MTPROTO_DIR ]]; then
         if cmd_exists docker; then
             (cd "$MTPROTO_DIR" && docker compose down --remove-orphans >/dev/null 2>&1) || true
@@ -615,6 +649,7 @@ wipe_existing() {
     rm -f "${NGINX_SITES_ENABLED}/80.conf" "${NGINX_SITES_AVAIL}/80.conf"
     rm -f "${NGINX_STREAM_DIR}/stream.conf"
     rm -f "${NGINX_CONF_D}/00-proxy-setup-maps.conf"
+    rm -f "${NGINX_CONF_D}/10-proxy-setup-decoy.conf"
     rm -f "${NGINX_MODULES_DIR}/50-proxy-setup-stream.conf"
     rm -rf /var/www/subpage
 
@@ -640,6 +675,9 @@ uninstall_all() {
     if systemctl list-unit-files 2>/dev/null | grep -q '^h-ui\.service'; then
         systemctl disable --now h-ui 2>/dev/null || true
     fi
+    if systemctl list-unit-files 2>/dev/null | grep -q '^telemt\.service'; then
+        systemctl disable --now telemt 2>/dev/null || true
+    fi
     if [[ -d $MTPROTO_DIR ]] && cmd_exists docker; then
         (cd "$MTPROTO_DIR" && docker compose down --remove-orphans >/dev/null 2>&1) || true
         docker rm -f mtproto_proxy >/dev/null 2>&1 || true
@@ -660,6 +698,8 @@ uninstall_all() {
     fi
 
     rm -rf "${XUI_DIR}" "${XUI_DB_DIR}" "${HUI_DIR}" "${MTPROTO_DIR}"
+    rm -rf "$TELEMT_DIR" "$TELEMT_DATA"
+    rm -f "$TELEMT_BIN" /etc/systemd/system/telemt.service
     : >"$MANIFEST"
     msg_ok "Компоненты удалены. Бэкапы и state остались в ${STATE_DIR}"
     msg_info "При необходимости: systemctl disable --now nginx && apt remove nginx-full"
@@ -906,6 +946,22 @@ map $http_upgrade $connection_upgrade {
 }
 EOF
 
+    if [[ $ENABLE_WEBPROXY -eq 1 ]]; then
+        cat >"${cfg}/conf.d/10-proxy-setup-decoy.conf" <<EOF
+# Managed by proxy-setup (deploy.sh) — decoy origin for telemt (loopback only)
+server {
+    listen 127.0.0.1:${WEBPROXY_DECOY_PORT};
+    server_name ${DOMAIN};
+    server_tokens off;
+    root ${WEBROOT};
+    index index.html;
+
+    location ~ /\\.(?!well-known) { deny all; }
+    location / { try_files \$uri \$uri/ /index.html; }
+}
+EOF
+    fi
+
     cat >"${cfg}/stream-enabled/stream.conf" <<EOF
 # Managed by proxy-setup (deploy.sh)
 map \$ssl_preread_server_name \$ps_upstream {
@@ -1077,6 +1133,26 @@ server {
         proxy_pass http://127.0.0.1:${SUB_PORT};
     }
 
+$(if [[ $ENABLE_WEBPROXY -eq 1 ]]; then cat <<WEBP
+    # ── Telegram Web Proxy: tg://webproxy (telemt, plain HTTP) ─────────────
+    location ^~ /${WEBPROXY_PATH} {
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        client_max_body_size 0;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        proxy_pass http://127.0.0.1:${WEBPROXY_PORT};
+    }
+WEBP
+fi)
+
 $(if [[ $ENABLE_XHTTP -eq 1 && $ENABLE_XUI -eq 1 ]]; then cat <<XHTTP
     # ── VLESS XHTTP через unix-сокет Xray ──────────────────────────────────
     location ^~ /${XHTTP_PATH} {
@@ -1171,10 +1247,14 @@ EOF
     manifest_add "${NGINX_SITES_ENABLED}/80.conf"
     manifest_add "${NGINX_STREAM_DIR}/stream.conf"
     manifest_add "${NGINX_CONF_D}/00-proxy-setup-maps.conf"
+    if [[ $ENABLE_WEBPROXY -eq 1 ]]; then
+        manifest_add "${NGINX_CONF_D}/10-proxy-setup-decoy.conf"
+    fi
 
     if ! nginx -t; then
         msg_err "nginx -t не прошёл — откатываю конфигурацию"
         rm -f "${NGINX_CONF_D}/00-proxy-setup-maps.conf"
+        rm -f "${NGINX_CONF_D}/10-proxy-setup-decoy.conf"
         rm -f "${NGINX_STREAM_DIR}/stream.conf"
         systemctl stop nginx 2>/dev/null || true
         if [[ -f $nginx_backup ]]; then
@@ -1734,6 +1814,157 @@ mtproto_link() {
     # префикса dd, поэтому собираем каноническую ссылку из наших же значений.
     printf 'tg://proxy?server=%s&port=%s&secret=dd%s' "$SERVER_IP" "$MT_PORT" "$MT_SECRET"
 }
+# ── Telegram Web Proxy (telemt) ─────────────────────────────────────────────
+telemt_arch() {
+    case "$(uname -m)" in
+        x86_64|amd64) printf 'x86_64' ;;
+        aarch64|arm64) printf 'aarch64' ;;
+        *) die "telemt: неподдерживаемая архитектура $(uname -m)" ;;
+    esac
+}
+
+telemt_libc() {
+    if ldd --version 2>&1 | grep -qi musl; then printf 'musl'; else printf 'gnu'; fi
+}
+
+install_telemt() {
+    local arch libc url tmp expected actual
+    arch=$(telemt_arch)
+    libc=$(telemt_libc)
+
+    if [[ -x $TELEMT_BIN && $FORCE -eq 0 ]]; then
+        if "$TELEMT_BIN" --version >/dev/null 2>&1; then
+            msg_ok "telemt уже установлен ($("$TELEMT_BIN" --version 2>/dev/null | head -1)), переустановка не требуется"
+            return 0
+        fi
+    fi
+
+    msg_info "Установка telemt (${arch}-linux-${libc})"
+    tmp=$(mktemp -d)
+    url="https://github.com/telemt/telemt/releases/latest/download/telemt-${arch}-linux-${libc}.tar.gz"
+    curl -fL --retry 3 --max-time 300 -o "${tmp}/telemt.tgz" "$url" \
+        || { rm -rf "$tmp"; die "Не удалось скачать telemt: ${url}"; }
+    if curl -fsSL --max-time 30 -o "${tmp}/telemt.tgz.sha256" "${url}.sha256" 2>/dev/null; then
+        expected=$(awk '{print $1}' "${tmp}/telemt.tgz.sha256")
+        actual=$(sha256sum "${tmp}/telemt.tgz" | awk '{print $1}')
+        if [[ -n $expected && $expected != "$actual" ]]; then
+            rm -rf "$tmp"
+            die "sha256 не совпал для telemt"
+        fi
+        msg_ok "sha256 архива telemt проверен"
+    fi
+    tar -xzf "${tmp}/telemt.tgz" -C "$tmp"
+    [[ -f "${tmp}/telemt" ]] || { rm -rf "$tmp"; die "В архиве telemt нет бинарника"; }
+    install -m 0755 "${tmp}/telemt" "$TELEMT_BIN"
+    rm -rf "$tmp"
+
+    if ! id -u "$TELEMT_USER" >/dev/null 2>&1; then
+        useradd --system --home-dir "$TELEMT_DATA" --shell /usr/sbin/nologin --user-group "$TELEMT_USER"
+    fi
+    mkdir -p "$TELEMT_DATA" "$TELEMT_DIR"
+    chown -R "${TELEMT_USER}:${TELEMT_USER}" "$TELEMT_DATA" "$TELEMT_DIR"
+    chmod 750 "$TELEMT_DIR"
+
+    cat >/etc/systemd/system/telemt.service <<'EOF'
+[Unit]
+Description=telemt (Telegram MTProxy / Web Proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telemt
+Group=telemt
+WorkingDirectory=/opt/telemt
+ExecStart=/usr/local/bin/telemt run /etc/telemt/telemt.toml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/opt/telemt
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable telemt >/dev/null 2>&1 || true
+    manifest_add "$TELEMT_BIN"
+    manifest_add "$TELEMT_DIR"
+    manifest_add "$TELEMT_DATA"
+    manifest_add /etc/systemd/system/telemt.service
+    msg_ok "telemt установлен"
+}
+
+configure_webproxy() {
+    msg_info "Настройка Telegram Web Proxy (telemt, loopback + nginx)"
+    cat >"$TELEMT_CONF" <<EOF
+# Managed by proxy-setup (deploy.sh)
+[general]
+data_path = "${TELEMT_DATA}"
+log_level = "normal"
+use_middle_proxy = true
+
+[general.links]
+show = ["${WEBPROXY_USER}"]
+
+[access.users]
+${WEBPROXY_USER} = "${WEBPROXY_SECRET}"
+
+[[server.listeners]]
+ip = "127.0.0.1"
+port = ${WEBPROXY_PORT}
+transport = "web"
+proxy_protocol = false
+web_client_ip_source = "x_forwarded_for"
+web_trusted_proxy_cidrs = ["127.0.0.1/32"]
+
+# Control API не нужен и не должен быть доступен
+[server.api]
+enabled = false
+
+[web]
+enabled = true
+carrier = "https-lanes"
+decoy_fasttrack_mode = "off"
+http_connection_capacity_action = "drop"
+
+[[web.vhosts]]
+host = "${DOMAIN}"
+base_path = "${WEBPROXY_PATH}"
+public_addr = "${SERVER_IP}:443"
+
+[web.vhosts.decoy]
+mode = "http_upstream"
+upstream = "http://127.0.0.1:${WEBPROXY_DECOY_PORT}"
+
+[[web.vhosts.profiles]]
+user = "${WEBPROXY_USER}"
+secret_mode = "dd"
+max_sessions = 32
+max_streams = 512
+max_streams_per_session = 64
+EOF
+    chown "${TELEMT_USER}:${TELEMT_USER}" "$TELEMT_CONF"
+    chmod 600 "$TELEMT_CONF"
+    manifest_add "$TELEMT_CONF"
+
+    systemctl restart telemt
+    wait_for_port "$WEBPROXY_PORT" 60 || die "telemt не слушает 127.0.0.1:${WEBPROXY_PORT}"
+
+    WEBPROXY_LINK=$(journalctl -u telemt -n 400 --no-pager 2>/dev/null \
+        | grep -o 'tg://webproxy[^ "]*' | tail -1 || true)
+    if [[ -n $WEBPROXY_LINK ]]; then
+        save_state
+        msg_ok "Telegram Web Proxy поднят: ${WEBPROXY_LINK}"
+    else
+        msg_warn "telemt запущен, но ссылку tg://webproxy найти в логе не удалось"
+    fi
+}
+# __WEBPROXY_END__
+
 # ── Ссылки и итоговая сводка ────────────────────────────────────────────────
 vless_reality_link() {
     printf 'vless://%s@%s:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp#reality-%s' \
@@ -1795,6 +2026,14 @@ print_summary() {
         sections+=("  [MTProto]")
         sections+=("  Ссылка        : ${mt_line}")
         sections+=("  Docker        : ${MTPROTO_DIR} (container mtproto_proxy)")
+    fi
+
+    if [[ $ENABLE_WEBPROXY -eq 1 ]]; then
+        sections+=("")
+        sections+=("  [Telegram Web Proxy]")
+        sections+=("  Ссылка        : ${WEBPROXY_LINK:-не получена (journalctl -u telemt)}")
+        sections+=("  Клиент        : Telegram Desktop (WEB-прокси); мобильные — через MTProto")
+        sections+=("  Реализация    : telemt 127.0.0.1:${WEBPROXY_PORT}, nginx /${WEBPROXY_PATH}")
     fi
 
     sections+=("")
@@ -1874,6 +2113,32 @@ final_checks() {
             msg_ok "MTProto контейнер работает"
         else
             msg_warn "MTProto контейнер не работает"
+        fi
+    fi
+
+    if [[ $ENABLE_WEBPROXY -eq 1 ]]; then
+        if systemctl is-active --quiet telemt; then
+            msg_ok "telemt active (Web Proxy listener 127.0.0.1:${WEBPROXY_PORT})"
+        else
+            msg_warn "telemt не активен"
+        fi
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "https://${DOMAIN}/${WEBPROXY_PATH}/" || true)
+        if [[ $code == "200" ]]; then
+            msg_ok "Web Proxy path отдаёт decoy-сайт (200)"
+        else
+            msg_warn "Web Proxy path вернул ${code:-нет ответа} (ожидался 200 decoy)"
+        fi
+        if [[ -n $WEBPROXY_LINK ]]; then
+            msg_ok "Ссылка tg://webproxy сформирована"
+        else
+            msg_warn "Ссылка tg://webproxy не найдена в логе telemt"
+        fi
+        if ss -ltn "sport = :${WEBPROXY_PORT}" 2>/dev/null | grep -q .; then
+            if ss -ltn "sport = :${WEBPROXY_PORT}" | grep -q '0.0.0.0'; then
+                msg_err "telemt слушает 0.0.0.0:${WEBPROXY_PORT} — это ошибка конфигурации"
+            else
+                msg_ok "Web Proxy listener только на loopback"
+            fi
         fi
     fi
 
@@ -1979,6 +2244,11 @@ main() {
 
     if [[ $ENABLE_MTPROTO -eq 1 ]]; then
         install_mtproto
+    fi
+
+    if [[ $ENABLE_WEBPROXY -eq 1 ]]; then
+        install_telemt
+        configure_webproxy
     fi
 
     apply_nginx
