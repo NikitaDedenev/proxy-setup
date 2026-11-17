@@ -706,10 +706,36 @@ uninstall_all() {
     exit 0
 }
 # ── Системная обвязка ────────────────────────────────────────────────────────
+wait_for_apt() {
+    local i=0
+    while pgrep -x unattended-upgr >/dev/null 2>&1 \
+       || pgrep -x apt-get >/dev/null 2>&1 \
+       || pgrep -x dpkg >/dev/null 2>&1; do
+        sleep 3
+        i=$((i + 1))
+        if (( i >= 100 )); then
+            msg_warn "apt/dpkg занят более 300s — пробую установку всё равно"
+            break
+        fi
+    done
+}
+
+apt_install_retry() {
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        wait_for_apt
+        if apt-get update -qq && apt-get install -y -qq --no-install-recommends "$@"; then
+            return 0
+        fi
+        msg_warn "apt-get не смог установить пакеты (попытка ${attempt}/5), ждём 20s"
+        sleep 20
+    done
+    return 1
+}
+
 install_packages() {
     msg_info "Установка пакетов"
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
 
     local pkgs=(
         curl wget jq bash sudo tar openssl ca-certificates tzdata
@@ -719,7 +745,7 @@ install_packages() {
     if [[ $ENABLE_MTPROTO -eq 1 ]]; then
         pkgs+=(docker.io docker-compose-v2)
     fi
-    apt-get install -y -qq --no-install-recommends "${pkgs[@]}"
+    apt_install_retry "${pkgs[@]}" || die "apt-get install не удался после 5 попыток"
     msg_ok "Пакеты установлены"
 
     if [[ $ENABLE_MTPROTO -eq 1 ]]; then
@@ -958,6 +984,9 @@ server {
 
     location ~ /\\.(?!well-known) { deny all; }
     location / { try_files \$uri \$uri/ /index.html; }
+
+    # decoy не должен выдавать «nginx 405» на POST — отдаём главную страницу
+    error_page 405 =200 /index.html;
 }
 EOF
     fi
@@ -2133,11 +2162,13 @@ final_checks() {
         else
             msg_warn "Ссылка tg://webproxy не найдена в логе telemt"
         fi
-        if ss -ltn "sport = :${WEBPROXY_PORT}" 2>/dev/null | grep -q .; then
-            if ss -ltn "sport = :${WEBPROXY_PORT}" | grep -q '0.0.0.0'; then
-                msg_err "telemt слушает 0.0.0.0:${WEBPROXY_PORT} — это ошибка конфигурации"
+        if [[ -n $(ss -Hltn "sport = :${WEBPROXY_PORT}" 2>/dev/null) ]]; then
+            local wp_addr
+            wp_addr=$(ss -Hltn "sport = :${WEBPROXY_PORT}" | awk 'NR==1{print $4}')
+            if [[ $wp_addr == 127.0.0.1:* ]]; then
+                msg_ok "Web Proxy listener только на loopback (${wp_addr})"
             else
-                msg_ok "Web Proxy listener только на loopback"
+                msg_err "telemt слушает ${wp_addr} — ожидался 127.0.0.1"
             fi
         fi
     fi
